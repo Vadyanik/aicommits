@@ -91,6 +91,7 @@ func askAi(diff []byte, history []byte) string {
 		"Write a concise git commit message based on the following diff. "+
 			"Output ONLY the message itself, no preamble or quotes. "+
 			"Make them as informative as possible, and try to be creative. "+
+			"If the change is tiny (like a shebang fix or typo), use 'fix:' or 'chore:' with a simple description. "+
 			"Use Conventional Commits format (e.g., feat:, fix:, docs:). "+
 			"Try to replicate the style of the last 10 commit messages:\n%s",
 		history,
