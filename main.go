@@ -33,6 +33,24 @@ func main() {
 	var aiMessage string = askAi(diffOut, logOut)
 
 	fmt.Printf("Generated commit message:\n%s\n", aiMessage)
+	fmt.Print("Apply this commit? (Y/n): ")
+
+	var answer string
+	fmt.Scanln(&answer) // Читаем ввод до нажатия Enter
+
+	if strings.ToLower(answer) == "y" || strings.ToLower(answer) == "yes" || answer == "" {
+		fmt.Println("Committing changes...")
+
+		commitCmd := exec.Command("git", "commit", "-m", aiMessage)
+		output, err := commitCmd.CombinedOutput()
+		if err != nil {
+			log.Fatalf("Error: commit failed: %v\nOutput: %s", err, string(output))
+		}
+
+		fmt.Printf("Success!\n%s\n", string(output))
+	} else {
+		fmt.Println("Commit aborted by user.")
+	}
 }
 
 func readIgnoreFile(filename string) []string {
