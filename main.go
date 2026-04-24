@@ -1,14 +1,15 @@
 package main
 
 import (
-	//"context"
 	"bufio"
+	"context"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"strings"
-	//"google.golang.org/genai"
+
+	"google.golang.org/genai"
 )
 
 func main() {
@@ -23,7 +24,15 @@ func main() {
 		log.Fatal(err)
 	}
 
-	fmt.Printf("Git diff output:\n%s\n", string(diffOut))
+	logCmd := exec.Command("git", "log", "-n", "10", "--format=%s")
+	logOut, err := logCmd.Output()
+	if err != nil {
+		logOut = []byte("")
+	}
+
+	var aiMessage string = askAi(diffOut, logOut)
+
+	fmt.Printf("Generated commit message:\n%s\n", aiMessage)
 }
 
 func readIgnoreFile(filename string) []string {
@@ -53,4 +62,32 @@ func readIgnoreFile(filename string) []string {
 	defer file.Close()
 
 	return ignores
+}
+
+func askAi(diff []byte, history []byte) string {
+	ctx := context.Background()
+	client, err := genai.NewClient(ctx, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	instruction := fmt.Sprintf(
+		"Write a concise git commit message based on the following diff. "+
+			"Output ONLY the message itself, no preamble or quotes. "+
+			"Make them as informative as possible, and try to be creative. "+
+			"Use Conventional Commits format (e.g., feat:, fix:, docs:)"+
+			"Try to replicate the style of the last 10 commit messages:\n%s",
+		history,
+	)
+	prompt := fmt.Sprintf("%s\n\n%s", instruction, string(diff))
+
+	result, err := client.Models.GenerateContent(
+		ctx,
+		"gemini-2.5-flash-lite",
+		genai.Text(prompt),
+		nil,
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return result.Text()
 }
