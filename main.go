@@ -56,18 +56,14 @@ func main() {
 func readIgnoreFile(filename string) []string {
 	file, err := os.Open(filename)
 	if err != nil {
-		log.Printf("Error opening file: %v", err)
-	}
-
-	if file == nil {
 		return nil
 	}
+	defer file.Close()
 
-	scanner := bufio.NewScanner(file)
 	var ignores []string
+	scanner := bufio.NewScanner(file)
 
 	for scanner.Scan() {
-
 		line := strings.TrimSpace(scanner.Text())
 
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -77,7 +73,10 @@ func readIgnoreFile(filename string) []string {
 		formatedLine := fmt.Sprintf(":(exclude)%s", line)
 		ignores = append(ignores, formatedLine)
 	}
-	defer file.Close()
+
+	if err := scanner.Err(); err != nil {
+		return ignores
+	}
 
 	return ignores
 }
