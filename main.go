@@ -41,12 +41,11 @@ func main() {
 
 	var aiMessage string = askAi(diffOut, logOut)
 
-	fmt.Printf("Generated commit message:\n%s\n", aiMessage)
-
 	// Determine if we should apply the commit
 	shouldApply := *yesFlag
 	if !*yesFlag {
-		// Interactive mode: prompt for confirmation
+		// Interactive mode: show message and prompt for confirmation
+		fmt.Printf("Generated commit message:\n%s\n", aiMessage)
 		fmt.Print("Apply this commit? (Y/n): ")
 		var answer string
 		fmt.Scanln(&answer)
@@ -54,7 +53,9 @@ func main() {
 	}
 
 	if shouldApply {
-		fmt.Println("Committing changes...")
+		if !*yesFlag {
+			fmt.Println("Committing changes...")
+		}
 
 		commitCmd := exec.Command("git", "commit", "-m", aiMessage)
 		output, err := commitCmd.CombinedOutput()
@@ -62,7 +63,12 @@ func main() {
 			log.Fatalf("Error: commit failed: %v\nOutput: %s", err, string(output))
 		}
 
-		fmt.Printf("Success!\n%s\n", string(output))
+		if !*yesFlag {
+			fmt.Printf("Success!\n%s\n", string(output))
+		} else {
+			// Quiet mode: only output the commit message
+			fmt.Println(aiMessage)
+		}
 	} else {
 		fmt.Println("Commit aborted by user.")
 	}
