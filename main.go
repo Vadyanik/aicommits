@@ -23,6 +23,10 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	if diffOut == nil || len(diffOut) == 0 {
+		fmt.Println("No changes to commit.")
+		return
+	}
 
 	logCmd := exec.Command("git", "log", "-n", "10", "--format=%s")
 	logOut, err := logCmd.Output()
