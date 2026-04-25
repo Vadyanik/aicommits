@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -13,6 +14,10 @@ import (
 )
 
 func main() {
+	// Define -y flag for non-interactive mode
+	yesFlag := flag.Bool("y", false, "automatically apply the commit without prompting")
+	flag.Parse()
+
 	var ignore []string = readIgnoreFile(".aicomignore")
 
 	args := []string{"diff", "--cached", "--", "."}
@@ -37,12 +42,18 @@ func main() {
 	var aiMessage string = askAi(diffOut, logOut)
 
 	fmt.Printf("Generated commit message:\n%s\n", aiMessage)
-	fmt.Print("Apply this commit? (Y/n): ")
 
-	var answer string
-	fmt.Scanln(&answer) // Читаем ввод до нажатия Enter
+	// Determine if we should apply the commit
+	shouldApply := *yesFlag
+	if !*yesFlag {
+		// Interactive mode: prompt for confirmation
+		fmt.Print("Apply this commit? (Y/n): ")
+		var answer string
+		fmt.Scanln(&answer)
+		shouldApply = strings.ToLower(answer) == "y" || strings.ToLower(answer) == "yes" || answer == ""
+	}
 
-	if strings.ToLower(answer) == "y" || strings.ToLower(answer) == "yes" || answer == "" {
+	if shouldApply {
 		fmt.Println("Committing changes...")
 
 		commitCmd := exec.Command("git", "commit", "-m", aiMessage)
