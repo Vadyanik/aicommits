@@ -14,7 +14,6 @@ import (
 )
 
 func main() {
-	// Define -y flag for non-interactive mode
 	yesFlag := flag.Bool("y", false, "automatically apply the commit without prompting")
 	flag.Parse()
 
@@ -41,10 +40,8 @@ func main() {
 
 	var aiMessage string = askAi(diffOut, logOut)
 
-	// Determine if we should apply the commit
 	shouldApply := *yesFlag
 	if !*yesFlag {
-		// Interactive mode: show message and prompt for confirmation
 		fmt.Printf("Generated commit message:\n%s\n", aiMessage)
 		fmt.Print("Apply this commit? (Y/n): ")
 		var answer string
@@ -66,7 +63,6 @@ func main() {
 		if !*yesFlag {
 			fmt.Printf("Success!\n%s\n", string(output))
 		} else {
-			// Quiet mode: only output the commit message
 			fmt.Println(aiMessage)
 		}
 	} else {
