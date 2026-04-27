@@ -163,15 +163,15 @@ func askAi(diff []byte, history []byte) string {
 		log.Fatal(err)
 	}
 	instruction := fmt.Sprintf(
-		"Write a concise git commit message based on the following diff. "+
+		"Write a highly concise git commit message based on the following diff. "+
 			"Output ONLY the message itself, no preamble or quotes. "+
-			"Make them as informative as possible, and try to be creative. "+
-			"If the change is tiny (like a shebang fix or typo), use 'fix:' or 'chore:' with a simple description. "+
-			"Use Conventional Commits format (e.g., feat:, fix:, docs:). "+
+			"STRICT LENGTH LIMIT: Keep it under 50 words total. Do NOT write long paragraphs. "+
+			"Use Conventional Commits format (e.g., feat:, fix:, refactor:). "+
+			"For simple changes, return ONLY ONE LINE (the header). "+
+			"For complex changes, return the header and a maximum of 1-2 short bullet points. "+
 			"Try to replicate the style of the last 10 commit messages:\n%s",
 		history,
-	)
-	prompt := fmt.Sprintf("%s\n\n%s", instruction, string(diff))
+	)	prompt := fmt.Sprintf("%s\n\n%s", instruction, string(diff))
 
 	result, err := client.Models.GenerateContent(
 		ctx,
