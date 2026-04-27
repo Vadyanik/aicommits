@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"google.golang.org/genai"
@@ -15,7 +16,20 @@ import (
 
 func main() {
 	yesFlag := flag.Bool("y", false, "automatically apply the commit without prompting")
+	printFlag := flag.Bool("p", false, "print the commit message only, without committing")
+	apiFlag := flag.String("api", "", "save the API key to config file")
 	flag.Parse()
+
+	if *apiFlag != "" {
+		saveAPIKey(*apiFlag)
+		return
+	}
+
+	apiKey := loadAPIKey()
+	if apiKey == "" {
+		log.Fatal("❌ API key not found. Please set it using: aic -api <your_key>")
+	}
+	os.Setenv("GOOGLE_API_KEY", apiKey)
 
 	var ignore []string = readIgnoreFile(".aicomignore")
 
@@ -39,6 +53,11 @@ func main() {
 	}
 
 	var aiMessage string = askAi(diffOut, logOut)
+
+	if *printFlag {
+		fmt.Println(aiMessage)
+		return
+	}
 
 	shouldApply := *yesFlag
 	if !*yesFlag {
@@ -96,6 +115,45 @@ func readIgnoreFile(filename string) []string {
 	}
 
 	return ignores
+}
+
+func getConfigPath() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(homeDir, ".config", "aicommits", "apikey"), nil
+}
+
+func saveAPIKey(key string) {
+	configPath, err := getConfigPath()
+	if err != nil {
+		log.Fatalf("❌ Failed to get config path: %v", err)
+	}
+
+	configDir := filepath.Dir(configPath)
+	if err := os.MkdirAll(configDir, 0700); err != nil {
+		log.Fatalf("❌ Failed to create config directory: %v", err)
+	}
+
+	if err := os.WriteFile(configPath, []byte(key), 0600); err != nil {
+		log.Fatalf("❌ Failed to save API key: %v", err)
+	}
+
+	fmt.Println("✅ API key saved successfully")
+	os.Exit(0)
+}
+
+func loadAPIKey() string {
+	configPath, err := getConfigPath()
+	if err == nil {
+		data, err := os.ReadFile(configPath)
+		if err == nil && len(data) > 0 {
+			return strings.TrimSpace(string(data))
+		}
+	}
+
+	return os.Getenv("GOOGLE_API_KEY")
 }
 
 func askAi(diff []byte, history []byte) string {
