@@ -27,7 +27,7 @@ func main() {
 
 	apiKey := loadAPIKey()
 	if apiKey == "" {
-		log.Fatal("❌ API key not found. Please set it using: aic -api <your_key>")
+		log.Fatal("API key not found. Please set it using: aic -api <your_key>")
 	}
 	os.Setenv("GOOGLE_API_KEY", apiKey)
 
@@ -128,19 +128,19 @@ func getConfigPath() (string, error) {
 func saveAPIKey(key string) {
 	configPath, err := getConfigPath()
 	if err != nil {
-		log.Fatalf("❌ Failed to get config path: %v", err)
+		log.Fatalf("Failed to get config path: %v", err)
 	}
 
 	configDir := filepath.Dir(configPath)
 	if err := os.MkdirAll(configDir, 0700); err != nil {
-		log.Fatalf("❌ Failed to create config directory: %v", err)
+		log.Fatalf("Failed to create config directory: %v", err)
 	}
 
 	if err := os.WriteFile(configPath, []byte(key), 0600); err != nil {
-		log.Fatalf("❌ Failed to save API key: %v", err)
+		log.Fatalf("Failed to save API key: %v", err)
 	}
 
-	fmt.Println("✅ API key saved successfully")
+	fmt.Println("API key saved successfully")
 	os.Exit(0)
 }
 
