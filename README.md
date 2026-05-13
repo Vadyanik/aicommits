@@ -10,7 +10,7 @@
 
 ## Installation
 
-### Option 1: install script
+### Option 1: Install script
 
 ```bash
 ./install.sh
@@ -18,7 +18,7 @@
 
 This builds `aic` and installs it to `~/.local/bin`.
 
-### Option 2: build manually
+### Option 2: Build manually
 
 ```bash
 go build -o aic main.go
