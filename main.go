@@ -2,21 +2,30 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"google.golang.org/genai"
 )
 
+var ollamaHTTPClient = &http.Client{Timeout: 2 * time.Minute}
+
 func main() {
 	yesFlag := flag.Bool("y", false, "automatically apply the commit without prompting")
 	printFlag := flag.Bool("p", false, "print the commit message only, without committing")
+	ollamaFlag := flag.Bool("o", false, "use a local Ollama model instead of Gemini")
 	apiFlag := flag.String("api", "", "save the API key to config file")
 	flag.Parse()
 
@@ -26,10 +35,12 @@ func main() {
 	}
 
 	apiKey := loadAPIKey()
-	if apiKey == "" {
-		log.Fatal("API key not found. Please set it using: aic -api <your_key>")
+	if apiKey == "" && !*ollamaFlag {
+		log.Fatal("API key not found. Please set it using: aic -api <your_key> or use -o for Ollama")
 	}
-	os.Setenv("GOOGLE_API_KEY", apiKey)
+	if apiKey != "" {
+		os.Setenv("GOOGLE_API_KEY", apiKey)
+	}
 
 	var ignore []string = readIgnoreFile(".aicomignore")
 
@@ -52,7 +63,10 @@ func main() {
 		logOut = []byte("")
 	}
 
-	var aiMessage string = askAi(diffOut, logOut)
+	aiMessage, err := askAi(diffOut, logOut, *ollamaFlag)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	if *printFlag {
 		fmt.Println(aiMessage)
@@ -118,11 +132,19 @@ func readIgnoreFile(filename string) []string {
 }
 
 func getConfigPath() (string, error) {
+	return getConfigFilePath("apikey")
+}
+
+func getOllamaModelPath() (string, error) {
+	return getConfigFilePath("ollama-model")
+}
+
+func getConfigFilePath(filename string) (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(homeDir, ".config", "aicommits", "apikey"), nil
+	return filepath.Join(homeDir, ".config", "aicommits", filename), nil
 }
 
 func saveAPIKey(key string) {
@@ -156,12 +178,22 @@ func loadAPIKey() string {
 	return os.Getenv("GOOGLE_API_KEY")
 }
 
-func askAi(diff []byte, history []byte) string {
-	ctx := context.Background()
-	client, err := genai.NewClient(ctx, nil)
-	if err != nil {
-		log.Fatal(err)
+func askAi(diff []byte, history []byte, useOllama bool) (string, error) {
+	prompt := buildPrompt(diff, history)
+	if useOllama {
+		return askOllama(prompt)
 	}
+
+	message, err := askGemini(prompt)
+	if err == nil {
+		return message, nil
+	}
+
+	fmt.Fprintf(os.Stderr, "Gemini unavailable, using Ollama: %v\n", err)
+	return askOllama(prompt)
+}
+
+func buildPrompt(diff []byte, history []byte) string {
 	instruction := fmt.Sprintf(
 		"Write a highly concise git commit message based on the following diff. "+
 			"Output ONLY the message itself, no preamble or quotes. "+
@@ -171,7 +203,16 @@ func askAi(diff []byte, history []byte) string {
 			"For complex changes, return the header and a maximum of 1-2 short bullet points. "+
 			"Try to replicate the style of the last 10 commit messages:\n%s",
 		history,
-	)	prompt := fmt.Sprintf("%s\n\n%s", instruction, string(diff))
+	)
+	return fmt.Sprintf("%s\n\n%s", instruction, string(diff))
+}
+
+func askGemini(prompt string) (string, error) {
+	ctx := context.Background()
+	client, err := genai.NewClient(ctx, nil)
+	if err != nil {
+		return "", err
+	}
 
 	result, err := client.Models.GenerateContent(
 		ctx,
@@ -180,7 +221,150 @@ func askAi(diff []byte, history []byte) string {
 		nil,
 	)
 	if err != nil {
-		log.Fatal(err)
+		return "", err
 	}
-	return result.Text()
+	return strings.TrimSpace(result.Text()), nil
+}
+
+func askOllama(prompt string) (string, error) {
+	model, err := loadOrSelectOllamaModel()
+	if err != nil {
+		return "", err
+	}
+
+	requestBody, err := json.Marshal(ollamaGenerateRequest{
+		Model:  model,
+		Prompt: prompt,
+		Stream: false,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	resp, err := ollamaHTTPClient.Post(ollamaURL("/api/generate"), "application/json", bytes.NewReader(requestBody))
+	if err != nil {
+		return "", fmt.Errorf("failed to call Ollama: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("Ollama returned %s", resp.Status)
+	}
+
+	var result ollamaGenerateResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("failed to parse Ollama response: %w", err)
+	}
+
+	message := strings.TrimSpace(result.Response)
+	if message == "" {
+		return "", fmt.Errorf("Ollama returned an empty response")
+	}
+	return message, nil
+}
+
+func loadOrSelectOllamaModel() (string, error) {
+	modelPath, err := getOllamaModelPath()
+	if err != nil {
+		return "", err
+	}
+
+	data, err := os.ReadFile(modelPath)
+	if err == nil && strings.TrimSpace(string(data)) != "" {
+		return strings.TrimSpace(string(data)), nil
+	}
+
+	models, err := listOllamaModels()
+	if err != nil {
+		return "", err
+	}
+	if len(models) == 0 {
+		return "", fmt.Errorf("no Ollama models found. Install one with: ollama pull <model>")
+	}
+
+	fmt.Println("Select Ollama model:")
+	for i, model := range models {
+		fmt.Printf("%d. %s\n", i+1, model)
+	}
+
+	reader := bufio.NewReader(os.Stdin)
+	for {
+		fmt.Print("Model number: ")
+		answer, err := reader.ReadString('\n')
+		if err != nil {
+			return "", err
+		}
+
+		index, err := strconv.Atoi(strings.TrimSpace(answer))
+		if err == nil && index >= 1 && index <= len(models) {
+			selected := models[index-1]
+			if err := saveOllamaModel(modelPath, selected); err != nil {
+				return "", err
+			}
+			return selected, nil
+		}
+
+		fmt.Printf("Enter a number from 1 to %d.\n", len(models))
+	}
+}
+
+func listOllamaModels() ([]string, error) {
+	resp, err := ollamaHTTPClient.Get(ollamaURL("/api/tags"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to list Ollama models: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("Ollama returned %s while listing models", resp.Status)
+	}
+
+	var result ollamaTagsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to parse Ollama model list: %w", err)
+	}
+
+	models := make([]string, 0, len(result.Models))
+	for _, model := range result.Models {
+		if model.Name != "" {
+			models = append(models, model.Name)
+		}
+	}
+	sort.Strings(models)
+	return models, nil
+}
+
+func saveOllamaModel(modelPath string, model string) error {
+	configDir := filepath.Dir(modelPath)
+	if err := os.MkdirAll(configDir, 0700); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+	if err := os.WriteFile(modelPath, []byte(model), 0600); err != nil {
+		return fmt.Errorf("failed to save Ollama model: %w", err)
+	}
+	return nil
+}
+
+func ollamaURL(path string) string {
+	host := strings.TrimRight(os.Getenv("OLLAMA_HOST"), "/")
+	if host == "" {
+		host = "http://localhost:11434"
+	}
+	return host + path
+}
+
+type ollamaTagsResponse struct {
+	Models []struct {
+		Name string `json:"name"`
+	} `json:"models"`
+}
+
+type ollamaGenerateRequest struct {
+	Model  string `json:"model"`
+	Prompt string `json:"prompt"`
+	Stream bool   `json:"stream"`
+}
+
+type ollamaGenerateResponse struct {
+	Response string `json:"response"`
 }
