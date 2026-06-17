@@ -53,7 +53,11 @@ func main() {
 		log.Fatal(err)
 	}
 	if diffOut == nil || len(diffOut) == 0 {
-		fmt.Println("No changes to commit.")
+		if *printFlag {
+			fmt.Fprintln(os.Stderr, "No changes to commit.")
+		} else {
+			fmt.Println("No changes to commit.")
+		}
 		return
 	}
 
@@ -63,7 +67,7 @@ func main() {
 		logOut = []byte("")
 	}
 
-	aiMessage, err := askAi(diffOut, logOut, *ollamaFlag)
+	aiMessage, err := askAi(diffOut, logOut, *ollamaFlag, *printFlag)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -178,7 +182,7 @@ func loadAPIKey() string {
 	return os.Getenv("GOOGLE_API_KEY")
 }
 
-func askAi(diff []byte, history []byte, useOllama bool) (string, error) {
+func askAi(diff []byte, history []byte, useOllama bool, quiet bool) (string, error) {
 	prompt := buildPrompt(diff, history)
 	if useOllama {
 		return askOllama(prompt)
@@ -189,7 +193,9 @@ func askAi(diff []byte, history []byte, useOllama bool) (string, error) {
 		return message, nil
 	}
 
-	fmt.Fprintf(os.Stderr, "Gemini unavailable, using Ollama: %v\n", err)
+	if !quiet {
+		fmt.Fprintf(os.Stderr, "Gemini unavailable, using Ollama: %v\n", err)
+	}
 	return askOllama(prompt)
 }
 
@@ -282,14 +288,14 @@ func loadOrSelectOllamaModel() (string, error) {
 		return "", fmt.Errorf("no Ollama models found. Install one with: ollama pull <model>")
 	}
 
-	fmt.Println("Select Ollama model:")
+	fmt.Fprintln(os.Stderr, "Select Ollama model:")
 	for i, model := range models {
-		fmt.Printf("%d. %s\n", i+1, model)
+		fmt.Fprintf(os.Stderr, "%d. %s\n", i+1, model)
 	}
 
 	reader := bufio.NewReader(os.Stdin)
 	for {
-		fmt.Print("Model number: ")
+		fmt.Fprint(os.Stderr, "Model number: ")
 		answer, err := reader.ReadString('\n')
 		if err != nil {
 			return "", err
@@ -304,7 +310,7 @@ func loadOrSelectOllamaModel() (string, error) {
 			return selected, nil
 		}
 
-		fmt.Printf("Enter a number from 1 to %d.\n", len(models))
+		fmt.Fprintf(os.Stderr, "Enter a number from 1 to %d.\n", len(models))
 	}
 }
 
